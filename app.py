@@ -24,11 +24,23 @@ class GoogleDriveService:
     def initialize_drive(self):
         """Initialize Google Drive connection"""
         try:
+            logger.info("Starting Google Drive initialization...")
+            
+            # Debug: Check environment variables
+            client_secrets_env = os.environ.get('CLIENT_SECRETS_JSON')
+            credentials_env = os.environ.get('CREDENTIALS_JSON')
+            flask_env = os.environ.get('FLASK_ENV')
+            
+            logger.info(f"Environment check:")
+            logger.info(f"- FLASK_ENV: {flask_env}")
+            logger.info(f"- CLIENT_SECRETS_JSON present: {bool(client_secrets_env)}")
+            logger.info(f"- CREDENTIALS_JSON present: {bool(credentials_env)}")
+            
             gauth = GoogleAuth()
             
             # Check if we have client secrets in environment variable
-            client_secrets_env = os.environ.get('CLIENT_SECRETS_JSON')
             if client_secrets_env:
+                logger.info("Creating client_secrets.json from environment variable")
                 # Create client_secrets.json from environment variable
                 with open('client_secrets.json', 'w') as f:
                     if isinstance(client_secrets_env, str):
@@ -42,10 +54,12 @@ class GoogleDriveService:
                     else:
                         json.dump(client_secrets_env, f)
                 logger.info("Created client_secrets.json from environment variable")
+            else:
+                logger.warning("CLIENT_SECRETS_JSON environment variable not found")
             
             # Check if we have credentials in environment variable
-            credentials_env = os.environ.get('CREDENTIALS_JSON')
             if credentials_env:
+                logger.info("Creating credentials.json from environment variable")
                 # Create credentials.json from environment variable
                 with open('credentials.json', 'w') as f:
                     if isinstance(credentials_env, str):
@@ -57,6 +71,8 @@ class GoogleDriveService:
                     else:
                         json.dump(credentials_env, f)
                 logger.info("Created credentials.json from environment variable")
+            else:
+                logger.warning("CREDENTIALS_JSON environment variable not found")
             
             # Try to load saved credentials
             gauth.LoadCredentialsFile("credentials.json")
