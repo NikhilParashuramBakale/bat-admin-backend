@@ -10,7 +10,12 @@ from datetime import datetime
 import logging
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for React frontend
+CORS(app, origins=[
+    "http://localhost:5173",
+    "http://localhost:3000", 
+    "https://frontend-ten-eta-28.vercel.app",
+    "https://*.vercel.app"
+]) # Enable CORS for React frontend
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
