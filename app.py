@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, send_file, request
+from flask import Flask, jsonify, send_file, request, make_response
 from flask_cors import CORS
 from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive
@@ -538,7 +538,7 @@ def predict_species(bat_id):
             'confidence': 0
         }), 500
 
-@app.route('/api/species-image/<species_name>', methods=['GET'])
+@app.route('/api/species-image/<species_name>', methods=['GET', 'OPTIONS'])
 def get_species_image(species_name):
     """
     Get species image from local bat_species folder.
@@ -546,6 +546,13 @@ def get_species_image(species_name):
     
     Example: /api/species-image/Hipposideros_speoris
     """
+    # Handle CORS preflight requests
+    if request.method == 'OPTIONS':
+        response = make_response()
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        return response, 204
     try:
         # Get the backend directory
         backend_dir = os.path.dirname(os.path.abspath(__file__))
@@ -591,13 +598,19 @@ def get_species_image(species_name):
                     'message': 'Species image not found'
                 }), 404
         
-        # Send the image file
-        return send_file(
-            image_path,
-            mimetype='image/jpeg',
-            as_attachment=False,
-            download_name=os.path.basename(image_path)
-        )
+        # Send the image file with proper headers
+        with open(image_path, 'rb') as f:
+            image_data = f.read()
+        
+        response = make_response(image_data)
+        response.headers['Content-Type'] = 'image/jpeg'
+        response.headers['Content-Disposition'] = f'inline; filename="{os.path.basename(image_path)}"'
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        return response
     
     except Exception as e:
         logger.error(f"Error retrieving species image: {e}", exc_info=True)
