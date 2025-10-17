@@ -8,6 +8,11 @@ import json
 import tempfile
 from datetime import datetime
 import logging
+import sys
+from pathlib import Path
+
+# Add models directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'models'))
 
 app = Flask(__name__)
 CORS(app, origins=[
@@ -469,6 +474,137 @@ def health_check():
         'message': 'Backend service is running',
         'timestamp': datetime.now().isoformat()
     })
+
+# Mock species data for testing without Google Drive/Model
+MOCK_SPECIES_DATA = {
+    '825': {'species': 'Hipposideros_speoris', 'confidence': 92.5},
+    '826': {'species': 'Pipistrellus_coromandra', 'confidence': 88.3},
+    '827': {'species': 'Rhinolophus_rouxii', 'confidence': 95.1},
+    '828': {'species': 'Taphozous_melanopogon', 'confidence': 85.7},
+    '829': {'species': 'Megaderma_lyra', 'confidence': 91.2},
+    '830': {'species': 'Unknown_species', 'confidence': 45.3},
+}
+
+@app.route('/api/predict/<bat_id>', methods=['GET'])
+def predict_species(bat_id):
+    """
+    Predict bat species from spectrogram image.
+    For local testing, returns mock data. For production, would use ML model.
+    
+    Query params:
+    - server: server number (optional)
+    - client: client number (optional)
+    - mock: set to 'true' to use mock data (default is true for testing)
+    """
+    try:
+        # Get query parameters
+        server = request.args.get('server', '1')
+        client = request.args.get('client', '1')
+        use_mock = request.args.get('mock', 'true').lower() == 'true'
+        
+        logger.info(f"Predicting species for BAT {bat_id} (Server {server}, Client {client}) - Mock: {use_mock}")
+        
+        # Check if we have mock data for this BAT
+        if use_mock or bat_id in MOCK_SPECIES_DATA:
+            mock_prediction = MOCK_SPECIES_DATA.get(bat_id, {
+                'species': 'Unknown_species',
+                'confidence': 50.0
+            })
+            logger.info(f"Using mock prediction: {mock_prediction['species']} ({mock_prediction['confidence']}%)")
+            
+            return jsonify({
+                'success': True,
+                'species': mock_prediction['species'],
+                'confidence': mock_prediction['confidence'],
+                'bat_id': bat_id,
+                'mode': 'mock'
+            })
+        
+        # Real prediction with Google Drive + Model (if mock is disabled)
+        logger.warning("Mock mode disabled but BAT ID not in mock data - returning error")
+        return jsonify({
+            'success': False,
+            'message': f'BAT {bat_id} not found in mock data and mock mode is disabled',
+            'species': 'Unknown species',
+            'confidence': 0
+        }), 404
+    
+    except Exception as e:
+        logger.error(f"Error predicting species: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': str(e),
+            'species': 'Unknown species',
+            'confidence': 0
+        }), 500
+
+@app.route('/api/species-image/<species_name>', methods=['GET'])
+def get_species_image(species_name):
+    """
+    Get species image from local bat_species folder.
+    Maps species name to corresponding image file.
+    
+    Example: /api/species-image/Hipposideros_speoris
+    """
+    try:
+        # Get the backend directory
+        backend_dir = os.path.dirname(os.path.abspath(__file__))
+        species_dir = os.path.join(backend_dir, 'bat_species')
+        
+        logger.info(f"Looking for species image: {species_name}")
+        logger.info(f"Species directory: {species_dir}")
+        
+        if not os.path.exists(species_dir):
+            logger.error(f"Species directory not found: {species_dir}")
+            return jsonify({
+                'success': False,
+                'message': 'Species directory not found'
+            }), 500
+        
+        # Try to find image with species name (with various extensions)
+        possible_names = [
+            f"{species_name}.jpg",
+            f"{species_name}.jpeg",
+            f"{species_name}.png",
+            f"{species_name}.JPG",
+            f"{species_name}.JPEG",
+            f"{species_name}.PNG"
+        ]
+        
+        image_path = None
+        for name in possible_names:
+            path = os.path.join(species_dir, name)
+            if os.path.exists(path):
+                image_path = path
+                logger.info(f"Found species image: {path}")
+                break
+        
+        # Fallback to Unknown_species if not found
+        if not image_path:
+            logger.warning(f"Species image not found for {species_name}, using Unknown_species")
+            unknown_path = os.path.join(species_dir, 'Unknown_species.jpg')
+            if os.path.exists(unknown_path):
+                image_path = unknown_path
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': 'Species image not found'
+                }), 404
+        
+        # Send the image file
+        return send_file(
+            image_path,
+            mimetype='image/jpeg',
+            as_attachment=False,
+            download_name=os.path.basename(image_path)
+        )
+    
+    except Exception as e:
+        logger.error(f"Error retrieving species image: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
 
 if __name__ == '__main__':
     import os
