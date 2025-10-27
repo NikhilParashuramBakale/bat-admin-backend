@@ -15,15 +15,18 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'models'))
 
 # Import ML model prediction function
+ML_MODEL_AVAILABLE = False
+classify_image = None
+
 try:
-    from predict import classify_image
+    import predict
+    classify_image = predict.classify_image
     ML_MODEL_AVAILABLE = True
-    logger_temp = logging.getLogger(__name__)
-    logger_temp.info("✅ ML model (predict.py) loaded successfully")
-except ImportError as e:
-    ML_MODEL_AVAILABLE = False
-    logger_temp = logging.getLogger(__name__)
-    logger_temp.warning(f"⚠️ ML model not available: {e}")
+    print("✅ ML model (predict.py) loaded successfully")
+except Exception as e:
+    print(f"⚠️ ML model import error: {type(e).__name__}: {e}")
+    import traceback
+    traceback.print_exc()
 
 app = Flask(__name__)
 CORS(app, origins=[

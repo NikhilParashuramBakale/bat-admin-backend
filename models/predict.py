@@ -4,10 +4,10 @@ import torch.nn as nn
 from torchvision import transforms
 from efficientnet_pytorch import EfficientNet
 
-# Config
-PROJECT_ROOT = "models"
-MODEL_PATH = os.path.join(PROJECT_ROOT, "efficientnet_b0_bat_3_dataset(1).pth")
-CLASSES_PATH = os.path.join(PROJECT_ROOT, "new_3_dataset_classes(1).json")
+# Config - use absolute paths relative to this script's location
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(SCRIPT_DIR, "efficientnet_b0_bat_3_dataset(1).pth")
+CLASSES_PATH = os.path.join(SCRIPT_DIR, "new_3_dataset_classes(1).json")
 
 # Confidence threshold - predictions below this will be marked as unknown
 CONFIDENCE_THRESHOLD = 75.0
