@@ -14,6 +14,17 @@ from pathlib import Path
 # Add models directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'models'))
 
+# Import ML model prediction function
+try:
+    from predict import classify_image
+    ML_MODEL_AVAILABLE = True
+    logger_temp = logging.getLogger(__name__)
+    logger_temp.info("✅ ML model (predict.py) loaded successfully")
+except ImportError as e:
+    ML_MODEL_AVAILABLE = False
+    logger_temp = logging.getLogger(__name__)
+    logger_temp.warning(f"⚠️ ML model not available: {e}")
+
 app = Flask(__name__)
 CORS(app, origins=[
     "http://localhost:5173",
@@ -485,27 +496,28 @@ MOCK_SPECIES_DATA = {
     '830': {'species': 'Unknown_species', 'confidence': 45.3},
 }
 
-@app.route('/api/predict/<bat_id>', methods=['GET'])
+@app.route('/api/predict/<bat_id>', methods=['GET', 'POST'])
 def predict_species(bat_id):
     """
-    Predict bat species from spectrogram image.
-    For local testing, returns mock data. For production, would use ML model.
+    Predict bat species from spectrogram image using ML model.
     
-    Query params:
+    GET params:
     - server: server number (optional)
     - client: client number (optional)
-    - mock: set to 'true' to use mock data (default is true for testing)
+    - mock: set to 'true' to use mock data (optional, default is false)
+    
+    POST: Upload spectrogram image directly
     """
     try:
         # Get query parameters
         server = request.args.get('server', '1')
         client = request.args.get('client', '1')
-        use_mock = request.args.get('mock', 'true').lower() == 'true'
+        use_mock = request.args.get('mock', 'false').lower() == 'true'
         
         logger.info(f"Predicting species for BAT {bat_id} (Server {server}, Client {client}) - Mock: {use_mock}")
         
-        # Check if we have mock data for this BAT
-        if use_mock or bat_id in MOCK_SPECIES_DATA:
+        # Check if mock data is explicitly requested
+        if use_mock and bat_id in MOCK_SPECIES_DATA:
             mock_prediction = MOCK_SPECIES_DATA.get(bat_id, {
                 'species': 'Unknown_species',
                 'confidence': 50.0
@@ -520,21 +532,97 @@ def predict_species(bat_id):
                 'mode': 'mock'
             })
         
-        # Real prediction with Google Drive + Model (if mock is disabled)
-        logger.warning("Mock mode disabled but BAT ID not in mock data - returning error")
-        return jsonify({
-            'success': False,
-            'message': f'BAT {bat_id} not found in mock data and mock mode is disabled',
-            'species': 'Unknown species',
-            'confidence': 0
-        }), 404
+        # Try to get spectrogram from Google Drive
+        spectrogram_path = None
+        try:
+            logger.info(f"Fetching spectrogram from Google Drive for BAT {bat_id}")
+            files = drive_service.get_bat_files(bat_id, server, client)
+            
+            if files.get('spectrogram'):
+                # Download spectrogram
+                spectrogram_file = files['spectrogram']
+                with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                    spectrogram_file.GetContentFile(tmp.name)
+                    spectrogram_path = tmp.name
+                    logger.info(f"Downloaded spectrogram to {spectrogram_path}")
+        except Exception as e:
+            logger.warning(f"Failed to fetch spectrogram from Google Drive: {e}")
+        
+        # If no spectrogram from Drive, try to get from POST request
+        if not spectrogram_path and request.method == 'POST':
+            if 'file' not in request.files:
+                return jsonify({
+                    'success': False,
+                    'message': 'No spectrogram file provided',
+                    'species': 'Unknown species',
+                    'confidence': 0
+                }), 400
+            
+            file = request.files['file']
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                file.save(tmp.name)
+                spectrogram_path = tmp.name
+                logger.info(f"Saved uploaded file to {spectrogram_path}")
+        
+        # If still no spectrogram, return error
+        if not spectrogram_path:
+            logger.warning(f"No spectrogram found for BAT {bat_id} - returning Unknown species")
+            return jsonify({
+                'success': False,
+                'message': f'No spectrogram found for BAT {bat_id}',
+                'species': 'Unknown_species',
+                'confidence': 50.0,
+                'bat_id': bat_id,
+                'mode': 'error'
+            }), 404
+        
+        # Use ML model to predict
+        try:
+            if not ML_MODEL_AVAILABLE:
+                logger.error("ML model not available")
+                return jsonify({
+                    'success': False,
+                    'message': 'ML model not available',
+                    'species': 'Unknown_species',
+                    'confidence': 0,
+                    'bat_id': bat_id,
+                    'mode': 'error'
+                }), 500
+            
+            logger.info(f"Running ML model prediction on {spectrogram_path}")
+            predicted_species, confidence = classify_image(spectrogram_path)
+            
+            # Clean up temp file
+            if os.path.exists(spectrogram_path):
+                os.remove(spectrogram_path)
+            
+            logger.info(f"ML Prediction: {predicted_species} ({confidence}%)")
+            
+            return jsonify({
+                'success': True,
+                'species': predicted_species,
+                'confidence': confidence,
+                'bat_id': bat_id,
+                'mode': 'ml_model'
+            })
+        
+        except Exception as e:
+            logger.error(f"Error running ML model: {e}", exc_info=True)
+            return jsonify({
+                'success': False,
+                'message': f'Prediction error: {str(e)}',
+                'species': 'Unknown_species',
+                'confidence': 0,
+                'bat_id': bat_id,
+                'mode': 'error'
+            }), 500
     
     except Exception as e:
         logger.error(f"Error predicting species: {e}", exc_info=True)
         return jsonify({
             'success': False,
             'message': str(e),
-            'species': 'Unknown species',
+            'species': 'Unknown_species',
             'confidence': 0
         }), 500
 
