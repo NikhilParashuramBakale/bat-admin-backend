@@ -1,59 +1,76 @@
-import os, json, torch, argparse
-import numpy as np
-from PIL import Image
-import torch.nn as nn  
-from torchvision import transforms
-from efficientnet_pytorch import EfficientNet
+import os, json, argparse
 
-# Config - use absolute paths relative to this script's location
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.path.join(SCRIPT_DIR, "efficientnet_b0_bat_3_dataset(1).pth")
-CLASSES_PATH = os.path.join(SCRIPT_DIR, "new_3_dataset_classes(1).json")
+# Lazy imports - only import when needed to avoid numpy issues
+_model = None
+_device = None
+_transform = None
+_classes = None
 
-# Confidence threshold - predictions below this will be marked as unknown
-CONFIDENCE_THRESHOLD = 75.0
-
-# Device & transforms
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-])
-
-# Load classes
-with open(CLASSES_PATH, 'r', encoding='utf-8') as f:
-    classes = json.load(f)
-
-# Load model
-def load_model(model_path, num_classes):
-    model = EfficientNet.from_pretrained('efficientnet-b0')
-    model._fc = nn.Linear(model._fc.in_features, num_classes)
-    try:
-        model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
-    except:
-        model.load_state_dict(torch.load(model_path, map_location=device, weights_only=False))
-    model.eval().to(device)
-    return model
-
-# Preload model
-model = load_model(MODEL_PATH, len(classes))
+def load_dependencies():
+    """Lazy load all ML dependencies when first needed"""
+    global _model, _device, _transform, _classes, torch, torch_nn, transforms, EfficientNet, Image, np
+    
+    if _model is not None:
+        return  # Already loaded
+    
+    import numpy as np
+    import torch
+    import torch.nn as torch_nn
+    from torchvision import transforms
+    from efficientnet_pytorch import EfficientNet
+    from PIL import Image
+    
+    # Config - use absolute paths relative to this script's location
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    MODEL_PATH = os.path.join(SCRIPT_DIR, "efficientnet_b0_bat_3_dataset(1).pth")
+    CLASSES_PATH = os.path.join(SCRIPT_DIR, "new_3_dataset_classes(1).json")
+    
+    # Load classes
+    with open(CLASSES_PATH, 'r', encoding='utf-8') as f:
+        _classes = json.load(f)
+    
+    # Device & transforms
+    _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    _transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ])
+    
+    # Load model
+    def load_model(model_path, num_classes):
+        model = EfficientNet.from_pretrained('efficientnet-b0')
+        model._fc = torch_nn.Linear(model._fc.in_features, num_classes)
+        try:
+            model.load_state_dict(torch.load(model_path, map_location=_device, weights_only=True))
+        except:
+            model.load_state_dict(torch.load(model_path, map_location=_device, weights_only=False))
+        model.eval().to(_device)
+        return model
+    
+    _model = load_model(MODEL_PATH, len(_classes))
 
 def classify_image(img_path):
     """
     Classify an image and return the predicted class and confidence.
     If confidence is below the threshold, return 'Unknown species'.
     """
+    # Lazy load dependencies on first call
+    load_dependencies()
+    
+    # Confidence threshold
+    CONFIDENCE_THRESHOLD = 75.0
+    
     img = Image.open(img_path).convert("RGB")
-    x = transform(img).unsqueeze(0).to(device)
+    x = _transform(img).unsqueeze(0).to(_device)
    
     # Get prediction
     with torch.no_grad():
-        output = model(x)
+        output = _model(x)
         probs = torch.softmax(output, dim=1)[0]
         confidence, idx = probs.max(0)
         confidence_percent = round(confidence.item() * 100, 2)
-        predicted_class = classes[idx]
+        predicted_class = _classes[idx]
     
     # Check confidence threshold
     if confidence_percent < CONFIDENCE_THRESHOLD:
