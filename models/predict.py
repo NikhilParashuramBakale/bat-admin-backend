@@ -8,17 +8,22 @@ _classes = None
 
 def load_dependencies():
     """Lazy load all ML dependencies when first needed"""
-    global _model, _device, _transform, _classes, torch, torch_nn, transforms, EfficientNet, Image, np
+    global _model, _device, _transform, _classes, torch, torch_nn, transforms, EfficientNet, cv2, np
     
     if _model is not None:
         return  # Already loaded
     
+    # Import numpy FIRST to ensure it's available
     import numpy as np
+    # Make sure numpy array operations work
+    np.array([1, 2, 3])  # Test numpy
+    
+    # Now import torch and torchvision
     import torch
     import torch.nn as torch_nn
     from torchvision import transforms
     from efficientnet_pytorch import EfficientNet
-    from PIL import Image
+    import cv2
     
     # Config - use absolute paths relative to this script's location
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -61,8 +66,20 @@ def classify_image(img_path):
     # Confidence threshold
     CONFIDENCE_THRESHOLD = 75.0
     
-    img = Image.open(img_path).convert("RGB")
-    x = _transform(img).unsqueeze(0).to(_device)
+    # Use cv2 to load image (more compatible with numpy than PIL)
+    img_cv = cv2.imread(img_path)
+    if img_cv is None:
+        raise ValueError(f"Failed to load image: {img_path}")
+    
+    # Convert BGR to RGB (cv2 loads in BGR by default)
+    img_rgb = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
+    
+    # Convert to PIL for torchvision transforms
+    from PIL import Image as PILImage
+    img_pil = PILImage.fromarray(img_rgb)
+    
+    # Apply transforms
+    x = _transform(img_pil).unsqueeze(0).to(_device)
    
     # Get prediction
     with torch.no_grad():
