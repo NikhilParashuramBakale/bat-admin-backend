@@ -536,15 +536,34 @@ def predict_species(bat_id):
         spectrogram_path = None
         try:
             logger.info(f"Fetching spectrogram from Google Drive for BAT {bat_id}")
-            files = drive_service.get_bat_files(bat_id, server, client)
             
-            if files.get('spectrogram'):
-                # Download spectrogram
-                spectrogram_file = files['spectrogram']
-                with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-                    spectrogram_file.GetContentFile(tmp.name)
-                    spectrogram_path = tmp.name
-                    logger.info(f"Downloaded spectrogram to {spectrogram_path}")
+            # Search for the BAT folder
+            numeric_bat_id = bat_id.replace('BAT', '')
+            folder = drive_service.search_bat_folder(server, client, numeric_bat_id)
+            
+            if folder:
+                # Get files in the folder
+                files_in_folder = drive_service.get_folder_files(folder['id'])
+                
+                # Find spectrogram file
+                spectrogram_file = None
+                for file in files_in_folder:
+                    file_name_lower = file['name'].lower()
+                    if ('spectrogram' in file_name_lower or 'spectogram' in file_name_lower) and file_name_lower.endswith('.jpg'):
+                        spectrogram_file = file
+                        break
+                
+                if spectrogram_file:
+                    # Download spectrogram
+                    gfile = drive_service.drive.CreateFile({'id': spectrogram_file['id']})
+                    with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                        gfile.GetContentFile(tmp.name)
+                        spectrogram_path = tmp.name
+                        logger.info(f"Downloaded spectrogram to {spectrogram_path}")
+                else:
+                    logger.warning(f"No spectrogram file found in folder {folder['title']}")
+            else:
+                logger.warning(f"Folder not found for SERVER{server}_CLIENT{client}_{numeric_bat_id}")
         except Exception as e:
             logger.warning(f"Failed to fetch spectrogram from Google Drive: {e}")
         
