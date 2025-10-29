@@ -8,7 +8,7 @@ google-auth-oauthlib==1.1.0
 numpy>=1.24.0
 scipy>=1.10.0
 opencv-python>=4.8.0
-torch>=2.0.1
-torchvision==0.15.2
+torch>=2.9.0
+torchvision>=0.24.0
 efficientnet-pytorch>=0.7.1
 Pillow>=9.5.0
